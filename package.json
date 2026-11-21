@@ -1,15 +1,76 @@
 {
   "name": "forgepilot",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "displayName": "ForgePilot",
+  "version": "0.0.1",
+  "publisher": "local",
+  "main": "./out/extension.js",
+  "engines": {
+    "vscode": "^1.147.0"
   },
-  "keywords": [],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "forgepilot.inlineEdit",
+        "title": "Inline Edit",
+        "category": "ForgePilot"
+      },
+      {
+        "command": "forgepilot.acceptHunk",
+        "title": "Accept Hunk",
+        "category": "ForgePilot"
+      },
+      {
+        "command": "forgepilot.rejectHunk",
+        "title": "Reject Hunk",
+        "category": "ForgePilot"
+      },
+      {
+        "command": "forgepilot.acceptAllInFile",
+        "title": "Accept All Hunks in File",
+        "category": "ForgePilot"
+      },
+      {
+        "command": "forgepilot.rejectAllInFile",
+        "title": "Reject All Hunks in File",
+        "category": "ForgePilot"
+      },
+      {
+        "command": "forgepilot.undoLastEdit",
+        "title": "Undo Last Edit",
+        "category": "ForgePilot"
+      },
+      {
+        "command": "forgepilot.cancelRun",
+        "title": "Cancel Run",
+        "category": "ForgePilot"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "forgepilot.inlineEdit",
+        "key": "ctrl+alt+k",
+        "mac": "cmd+alt+k",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "forgepilot.cancelRun",
+        "key": "escape",
+        "when": "forgepilot.running"
+      }
+    ]
+  },
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "typecheck": "tsc -p ./ --noEmit"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@truefoundry/trueforge": "^0.184.2"

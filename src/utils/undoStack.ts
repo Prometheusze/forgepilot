@@ -1,5 +1,6 @@
 // src/utils/undoStack.ts
 import * as vscode from 'vscode';
+import * as path from 'path';
 
 export interface UndoEntry {
   filePath: string;
@@ -38,7 +39,7 @@ export class UndoStack {
     await vscode.workspace.applyEdit(edit);
     await doc.save();
     vscode.window.showInformationMessage(
-      `🔙 Reverted edit in ${vscode.path.basename(entry.filePath)}`
+      `🔙 Reverted edit in ${path.basename(entry.filePath)}`
     );
   }
 }

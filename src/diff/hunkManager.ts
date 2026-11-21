@@ -1,7 +1,6 @@
 // src/diff/hunkManager.ts
 import * as vscode from 'vscode';
 import { UndoStack, UndoEntry } from '../utils/undoStack';
-import { TrueForgeClient } from '../trueforge/client'; // thin wrapper around @truefoundry/trueforge-sdk
 
 export interface DiffHunk {
   id: string;               // UUID
@@ -14,9 +13,15 @@ export interface DiffHunk {
   rationale?: string;       // from the tool call
 }
 
+/** Result object passed to the onEditResolved callback */
+export interface EditResolvedResult {
+  approved: boolean;
+  acceptedHunkIds: string[];
+}
+
 /**
  * Parses a unified diff (the format emitted by `git diff –unified=0` or
- * by TrueForge’s `propose_edit` tool) into an array of `DiffHunk`s.
+ * by TrueForge's `propose_edit` tool) into an array of `DiffHunk`s.
  *
  * Example chunk header:
  *   @@ -10,5 +10,7 @@
@@ -65,6 +70,11 @@ export function parseUnifiedDiff(unifiedDiff: string, filePath: string): DiffHun
   return hunks;
 }
 
+/** Options for constructing a HunkManager */
+export interface HunkManagerOptions {
+  onEditResolved?: (editId: string, result: EditResolvedResult) => void | Promise<void>;
+}
+
 /**
  * Central manager for all staged edits in a turn.
  */
@@ -73,8 +83,10 @@ export class HunkManager {
   private staged = new Map<string, DiffHunk[]>();
   private decorations = new Map<string, vscode.TextEditorDecorationType>();
   private codeLensProvider: vscode.CodeLensProvider;
+  private onEditResolved?: (editId: string, result: EditResolvedResult) => void | Promise<void>;
 
-  constructor(private context: vscode.ExtensionContext) {
+  constructor(private context: vscode.ExtensionContext, options?: HunkManagerOptions) {
+    this.onEditResolved = options?.onEditResolved;
     this.codeLensProvider = new InlineHunkCodeLensProvider(this);
     this.context.subscriptions.push(
       vscode.languages.registerCodeLensProvider({ scheme: 'file' }, this.codeLensProvider)
@@ -118,7 +130,7 @@ export class HunkManager {
 
     hunk.status = 'accepted';
     this.refreshDecorations(editId);
-    await this.maybeApproveEdit(editId);
+    await this.maybeResolveEdit(editId);
   }
 
   /** Reject a single hunk – simply discard it */
@@ -127,7 +139,7 @@ export class HunkManager {
     if (!hunk) return;
     hunk.status = 'rejected';
     this.refreshDecorations(editId);
-    await this.maybeApproveEdit(editId);
+    await this.maybeResolveEdit(editId);
   }
 
   /** Accept / reject all hunks in a file */
@@ -200,18 +212,21 @@ export class HunkManager {
     }
   }
 
-  /** When all hunks resolved, inform TrueForge about approval */
-  private async maybeApproveEdit(editId: string) {
+  /** When all hunks resolved, notify via the callback (replaces TrueForge approval) */
+  private async maybeResolveEdit(editId: string) {
     const hunks = this.staged.get(editId);
     if (!hunks) return;
     const allDone = hunks.every(h => h.status !== 'pending');
     if (!allDone) return;
     const approved = hunks.some(h => h.status === 'accepted');
-    // send approval via SDK (client must be initialised elsewhere)
-    try {
-      await TrueForgeClient.instance.tools.approve({ editId, approved });
-    } catch (e) {
-      console.error('Failed to send tool approval', e);
+    const acceptedHunkIds = hunks.filter(h => h.status === 'accepted').map(h => h.id);
+    // notify via callback if one was provided
+    if (this.onEditResolved) {
+      try {
+        await this.onEditResolved(editId, { approved, acceptedHunkIds });
+      } catch (e) {
+        console.error('onEditResolved callback failed', e);
+      }
     }
     // finally clear UI artefacts
     this.clearEdit(editId);

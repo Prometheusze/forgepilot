@@ -2,20 +2,15 @@
 import * as vscode from 'vscode';
 import { HunkManager } from './diff/hunkManager';
 import { UndoStack } from './utils/undoStack';
-import { InlineEditController } from './inline/inlineEditController';
 
 export function activate(context: vscode.ExtensionContext) {
   const hunkManager = new HunkManager(context);
   let abortController: AbortController | null = null;
 
-  // Inline edit command (Cmd+K / Ctrl+K)
+  // Inline edit command (Ctrl+Alt+K / Cmd+Alt+K)
   context.subscriptions.push(
     vscode.commands.registerCommand('forgepilot.inlineEdit', async () => {
-      abortController = new AbortController();
-      await InlineEditController.run({
-        hunkManager,
-        abortSignal: abortController.signal,
-      });
+      vscode.window.showWarningMessage('ForgePilot: inline edit is not implemented yet');
     })
   );
 

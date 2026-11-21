@@ -1,1 +1,9 @@
 node_modules
+out
+*.vsix
+.vscode-test
+.env
+.env.*
+!.env.example
+*.local.yaml
+*.local.json
