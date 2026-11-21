@@ -52,6 +52,11 @@
         "command": "forgepilot.cancelRun",
         "title": "Cancel Run",
         "category": "ForgePilot"
+      },
+      {
+        "command": "forgepilot.askAgent",
+        "title": "Ask Agent",
+        "category": "ForgePilot"
       }
     ],
     "keybindings": [
@@ -82,6 +87,11 @@
           },
           "default": [],
           "description": "Ordered model candidates (primary, then fallbacks) configured in TrueForge"
+        },
+        "forgepilot.mcp.port": {
+          "type": "number",
+          "default": 8791,
+          "description": "Port for ForgePilot local MCP server (binds to 127.0.0.1 only)"
         }
       }
     }
@@ -92,11 +102,15 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "typecheck": "tsc -p ./ --noEmit"
+    "typecheck": "tsc -p ./ --noEmit",
+    "check:mcp": "node out/mcp/checks.js",
+    "check:diff": "node out/diff/checks.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
-    "@truefoundry/trueforge-sdk": "0.185.0"
+    "@truefoundry/trueforge-sdk": "0.185.0",
+    "diff": "9.0.0",
+    "zod": "^3.25 || ^4.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

@@ -4,6 +4,8 @@ import { HunkManager } from './diff/hunkManager.js';
 import { UndoStack } from './utils/undoStack.js';
 import { getForgePilotConfig } from './trueforge/config.js';
 import { createSession, streamTurn, cancelSession } from './trueforge/session.js';
+import { runAgent } from './agent/runAgent.js';
+import { disposeMcpServer } from './mcp/server.js';
 
 export function activate(context: vscode.ExtensionContext) {
   const hunkManager = new HunkManager(context);
@@ -53,17 +55,21 @@ export function activate(context: vscode.ExtensionContext) {
         }
         activeSessionId = sessionId;
 
-        const status = await streamTurn(sessionId, prompt, (delta) => {
+        const turnResult = await streamTurn(sessionId, prompt, (delta) => {
           if (currentGen === runGeneration) {
             channel.append(delta);
           }
         });
 
         if (currentGen === runGeneration) {
-          if (status === 'cancelled') {
+          if (turnResult.status === 'cancelled') {
             channel.appendLine('\n\ncancelled');
+          } else if (turnResult.status === 'error') {
+            const errorMsg = turnResult.errorMessage || 'Turn ended with error';
+            channel.appendLine(`\n\n[Turn error: ${errorMsg}]`);
+            vscode.window.showErrorMessage(`ForgePilot: Turn error: ${errorMsg}`);
           } else {
-            channel.appendLine(`\n\n[Turn status: ${status}]`);
+            channel.appendLine(`\n\n[Turn status: ${turnResult.status}]`);
           }
         }
       } catch (err: unknown) {
@@ -78,6 +84,22 @@ export function activate(context: vscode.ExtensionContext) {
           await vscode.commands.executeCommand('setContext', 'forgepilot.running', false);
         }
       }
+    })
+  );
+
+  // Ask Agent command: runs agent session connected to local MCP server
+  context.subscriptions.push(
+    vscode.commands.registerCommand('forgepilot.askAgent', async () => {
+      const currentGen = ++runGeneration;
+      const channel = getChannel();
+      await runAgent(
+        channel,
+        currentGen,
+        () => currentGen === runGeneration,
+        (id) => {
+          activeSessionId = id;
+        }
+      );
     })
   );
 
@@ -143,4 +165,6 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(undoItem);
 }
 
-export function deactivate() {}
+export function deactivate() {
+  void disposeMcpServer().catch(() => {});
+}
