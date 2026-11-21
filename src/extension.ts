@@ -1,11 +1,85 @@
 // src/extension.ts
 import * as vscode from 'vscode';
-import { HunkManager } from './diff/hunkManager';
-import { UndoStack } from './utils/undoStack';
+import { HunkManager } from './diff/hunkManager.js';
+import { UndoStack } from './utils/undoStack.js';
+import { getForgePilotConfig } from './trueforge/config.js';
+import { createSession, streamTurn, cancelSession } from './trueforge/session.js';
 
 export function activate(context: vscode.ExtensionContext) {
   const hunkManager = new HunkManager(context);
-  let abortController: AbortController | null = null;
+  let activeSessionId: string | null = null;
+  let runGeneration = 0;
+  let outputChannel: vscode.OutputChannel | null = null;
+
+  function getChannel(): vscode.OutputChannel {
+    if (!outputChannel) {
+      outputChannel = vscode.window.createOutputChannel('ForgePilot');
+    }
+    return outputChannel;
+  }
+
+  // Smoke test command: creates a session, streams model output, handles errors and cancellation
+  context.subscriptions.push(
+    vscode.commands.registerCommand('forgepilot.smokeTest', async () => {
+      const config = getForgePilotConfig();
+      if (!config.models || config.models.length === 0) {
+        vscode.window.showErrorMessage(
+          'ForgePilot: No models configured. Please set "forgepilot.models" in VS Code settings.'
+        );
+        return;
+      }
+
+      const prompt = await vscode.window.showInputBox({
+        prompt: 'Enter prompt for TrueForge smoke test',
+        placeHolder: 'e.g. Say hello and explain recursion in one sentence',
+      });
+      if (!prompt) {
+        return;
+      }
+
+      const currentGen = ++runGeneration;
+      const channel = getChannel();
+      channel.show(true);
+      channel.appendLine(`\n>>> TrueForge Smoke Test (Run #${currentGen})`);
+      channel.appendLine(`Model: ${config.models[0]}`);
+      channel.appendLine(`Prompt: ${prompt}\n`);
+
+      await vscode.commands.executeCommand('setContext', 'forgepilot.running', true);
+
+      try {
+        const sessionId = await createSession(config.models[0]);
+        if (currentGen !== runGeneration) {
+          return;
+        }
+        activeSessionId = sessionId;
+
+        const status = await streamTurn(sessionId, prompt, (delta) => {
+          if (currentGen === runGeneration) {
+            channel.append(delta);
+          }
+        });
+
+        if (currentGen === runGeneration) {
+          if (status === 'cancelled') {
+            channel.appendLine('\n\ncancelled');
+          } else {
+            channel.appendLine(`\n\n[Turn status: ${status}]`);
+          }
+        }
+      } catch (err: unknown) {
+        if (currentGen === runGeneration) {
+          const message = err instanceof Error ? err.message : String(err);
+          channel.appendLine(`\n\n[Error: ${message}]`);
+          vscode.window.showErrorMessage(`ForgePilot: ${message}`);
+        }
+      } finally {
+        if (currentGen === runGeneration) {
+          activeSessionId = null;
+          await vscode.commands.executeCommand('setContext', 'forgepilot.running', false);
+        }
+      }
+    })
+  );
 
   // Inline edit command (Ctrl+Alt+K / Cmd+Alt+K)
   context.subscriptions.push(
@@ -43,18 +117,24 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Cancel / Escape command
+  // Cancel / Escape command: calls cancelSession for the active run
   context.subscriptions.push(
-    vscode.commands.registerCommand('forgepilot.cancelRun', () => {
-      if (abortController) {
-        abortController.abort();
-        abortController = null;
-        vscode.window.showInformationMessage('🛑 TrueForge run cancelled');
+    vscode.commands.registerCommand('forgepilot.cancelRun', async () => {
+      if (!activeSessionId) {
+        return;
+      }
+      const sessionId = activeSessionId;
+      const channel = getChannel();
+      try {
+        await cancelSession(sessionId);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        channel.appendLine(`\n[Cancel error: ${message}]`);
       }
     })
   );
 
-  // Status‑bar button for undo
+  // Status-bar button for undo
   const undoItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
   undoItem.command = 'forgepilot.undoLastEdit';
   undoItem.text = '$(arrow-undo) Undo Last Edit';

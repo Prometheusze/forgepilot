@@ -14,6 +14,11 @@
   "contributes": {
     "commands": [
       {
+        "command": "forgepilot.smokeTest",
+        "title": "TrueForge Smoke Test",
+        "category": "ForgePilot"
+      },
+      {
         "command": "forgepilot.inlineEdit",
         "title": "Inline Edit",
         "category": "ForgePilot"
@@ -61,7 +66,25 @@
         "key": "escape",
         "when": "forgepilot.running"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "ForgePilot",
+      "properties": {
+        "forgepilot.trueforge.baseUrl": {
+          "type": "string",
+          "default": "http://localhost:8790",
+          "description": "Base URL of the TrueForge server harness"
+        },
+        "forgepilot.models": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Ordered model candidates (primary, then fallbacks) configured in TrueForge"
+        }
+      }
+    }
   },
   "author": "",
   "license": "ISC",
@@ -73,7 +96,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
-    "@truefoundry/trueforge": "^0.184.2"
+    "@truefoundry/trueforge-sdk": "0.185.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

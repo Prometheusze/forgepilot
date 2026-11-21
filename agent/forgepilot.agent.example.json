@@ -1,0 +1,12 @@
+{
+  "note": "Example session agent spec for ForgePilot on TrueForge. Query GET /api/v1/models against your local TrueForge server (default http://localhost:8790) to discover configured models. Never commit API keys or provider secrets.",
+  "spec": {
+    "instructions": "You are ForgePilot, an editor-native coding assistant. Follow instructions carefully, analyze the codebase, and propose accurate changes.",
+    "model": {
+      "name": "<model-name-from-GET-/api/v1/models>"
+    }
+  },
+  "models": [
+    "<model-name-from-GET-/api/v1/models>"
+  ]
+}
