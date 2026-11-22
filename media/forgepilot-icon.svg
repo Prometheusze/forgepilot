@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Flame / Forge top -->
+  <path d="M12 2C10.5 4.5 10 6.5 12 8.5C14 6.5 13.5 4.5 12 2Z" fill="currentColor" fill-opacity="0.2"/>
+  <!-- Pilot wings / Forge body -->
+  <path d="M3 11L12 7L21 11L17 14L12 11L7 14L3 11Z"/>
+  <!-- Lower anvil base -->
+  <path d="M6 14.5V18C6 19 8.5 20 12 20C15.5 20 18 19 18 18V14.5"/>
+  <path d="M12 11V16"/>
+</svg>

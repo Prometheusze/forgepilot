@@ -39,11 +39,39 @@
         "category": "ForgePilot"
       },
       {
+        "command": "forgepilot.agentMode",
+        "title": "Agent Mode",
+        "category": "ForgePilot"
+      },
+      {
         "command": "forgepilot.devReviewSample",
         "title": "ForgePilot (dev): Review Sample Edit",
         "category": "ForgePilot"
+      },
+      {
+        "command": "forgepilot.openPanel",
+        "title": "Focus Sidebar Panel",
+        "category": "ForgePilot"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "forgepilot-activitybar",
+          "title": "ForgePilot",
+          "icon": "media/forgepilot-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "forgepilot-activitybar": [
+        {
+          "type": "webview",
+          "id": "forgepilot.sidebarView",
+          "name": "ForgePilot"
+        }
+      ]
+    },
     "keybindings": [
       {
         "command": "forgepilot.inlineEdit",
@@ -77,6 +105,16 @@
           "type": "number",
           "default": 8791,
           "description": "Port for ForgePilot local MCP server (binds to 127.0.0.1 only)"
+        },
+        "forgepilot.contextBudgetChars": {
+          "type": "number",
+          "default": 24000,
+          "description": "Character budget for Context Assembly (default: 24000)"
+        },
+        "forgepilot.toolCallPacingMs": {
+          "type": "number",
+          "default": 1500,
+          "description": "Minimum pacing interval in milliseconds between consecutive tools/call requests (default: 1500)"
         }
       }
     }
@@ -92,7 +130,11 @@
     "check:diff": "node out/diff/checks.js",
     "check:review": "node out/review/checks.js",
     "check:decisions": "node out/review/decisionChecks.js",
-    "check:toolresolve": "node out/agent/toolResolveChecks.js"
+    "check:toolresolve": "node out/agent/toolResolveChecks.js",
+    "check:context": "node out/context/contextChecks.js",
+    "check:fallback": "node out/trueforge/fallbackChecks.js",
+    "check:ui": "node out/ui/uiChecks.js",
+    "check:all": "npm run compile && npm run check:toolresolve && npm run check:decisions && npm run check:review && npm run check:diff && npm run check:mcp && npm run check:context && npm run check:fallback && npm run check:ui"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

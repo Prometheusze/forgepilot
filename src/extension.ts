@@ -4,14 +4,28 @@ import * as path from 'node:path';
 import { getForgePilotConfig } from './trueforge/config.js';
 import { createSession, streamTurn, cancelSession } from './trueforge/session.js';
 import { runAgent, abortActiveAgentRun } from './agent/runAgent.js';
+import { runAgentMode } from './agent/agentController.js';
+import { runInlineEdit } from './inline/inlineEditController.js';
 import { disposeMcpServer } from './mcp/server.js';
 import { initUndoStatusBar, undoLastEdit } from './review/undo.js';
 import { registerDiffProvider, reviewProposal, cancelActiveReview } from './review/reviewUi.js';
 import { parseProposeEditArgs } from './review/proposal.js';
+import { ForgePilotSidebarProvider } from './ui/sidebarProvider.js';
+import { uiEventBus } from './ui/eventBus.js';
 
 export function activate(context: vscode.ExtensionContext) {
   registerDiffProvider(context);
   initUndoStatusBar(context);
+
+  const sidebarProvider = new ForgePilotSidebarProvider(context);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider('forgepilot.sidebarView', sidebarProvider)
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand('forgepilot.openPanel', () => {
+      vscode.commands.executeCommand('forgepilot.sidebarView.focus');
+    })
+  );
 
   let activeSessionId: string | null = null;
   let runGeneration = 0;
@@ -53,6 +67,15 @@ export function activate(context: vscode.ExtensionContext) {
       channel.appendLine(`Model: ${config.models[0]}`);
       channel.appendLine(`Prompt: ${prompt}\n`);
 
+      uiEventBus.emit({
+        type: 'runStart',
+        generation: currentGen,
+        mode: 'smoke',
+        prompt,
+        model: config.models[0],
+        trueforgeUrl: config.baseUrl,
+      });
+
       await vscode.commands.executeCommand('setContext', 'forgepilot.running', true);
 
       try {
@@ -62,21 +85,49 @@ export function activate(context: vscode.ExtensionContext) {
         }
         activeSessionId = sessionId;
 
+        uiEventBus.emit({
+          type: 'sessionCreated',
+          generation: currentGen,
+          sessionId,
+          model: config.models[0],
+        });
+
         const turnResult = await streamTurn(sessionId, prompt, (delta) => {
           if (currentGen === runGeneration) {
             channel.append(delta);
+            uiEventBus.emit({
+              type: 'streamDelta',
+              generation: currentGen,
+              delta,
+            });
           }
         });
 
         if (currentGen === runGeneration) {
           if (turnResult.status === 'cancelled') {
             channel.appendLine('\n\ncancelled');
+            uiEventBus.emit({
+              type: 'runDone',
+              generation: currentGen,
+              status: 'cancelled',
+            });
           } else if (turnResult.status === 'error') {
             const errorMsg = turnResult.errorMessage || 'Turn ended with error';
             channel.appendLine(`\n\n[Turn error: ${errorMsg}]`);
             vscode.window.showErrorMessage(`ForgePilot: Turn error: ${errorMsg}`);
+            uiEventBus.emit({
+              type: 'runDone',
+              generation: currentGen,
+              status: 'error',
+              errorMessage: errorMsg,
+            });
           } else {
             channel.appendLine(`\n\n[Turn status: ${turnResult.status}]`);
+            uiEventBus.emit({
+              type: 'runDone',
+              generation: currentGen,
+              status: 'done',
+            });
           }
         }
       } catch (err: unknown) {
@@ -84,6 +135,12 @@ export function activate(context: vscode.ExtensionContext) {
           const message = err instanceof Error ? err.message : String(err);
           channel.appendLine(`\n\n[Error: ${message}]`);
           vscode.window.showErrorMessage(`ForgePilot: ${message}`);
+          uiEventBus.emit({
+            type: 'runDone',
+            generation: currentGen,
+            status: 'error',
+            errorMessage: message,
+          });
         }
       } finally {
         if (currentGen === runGeneration) {
@@ -113,10 +170,40 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  // Agent Mode command: autonomous multi-file coding agent
+  context.subscriptions.push(
+    vscode.commands.registerCommand('forgepilot.agentMode', async (promptOverride?: string) => {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
+      const channel = getChannel();
+      channel.appendLine(`Workspace: ${workspaceRoot ?? 'none'}`);
+
+      const currentGen = ++runGeneration;
+      await runAgentMode(
+        channel,
+        currentGen,
+        () => currentGen === runGeneration,
+        (id) => {
+          activeSessionId = id;
+        },
+        promptOverride
+      );
+    })
+  );
+
   // Inline edit command (Ctrl+Alt+K / Cmd+Alt+K)
   context.subscriptions.push(
-    vscode.commands.registerCommand('forgepilot.inlineEdit', async () => {
-      vscode.window.showWarningMessage('ForgePilot: inline edit is not implemented yet');
+    vscode.commands.registerCommand('forgepilot.inlineEdit', async (promptOverride?: string) => {
+      const channel = getChannel();
+      const currentGen = ++runGeneration;
+      await runInlineEdit(
+        channel,
+        currentGen,
+        () => currentGen === runGeneration,
+        (id) => {
+          activeSessionId = id;
+        },
+        promptOverride
+      );
     })
   );
 
