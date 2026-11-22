@@ -150,15 +150,29 @@ export async function createSession(modelName: string): Promise<string> {
 /**
  * Loads agent/forgepilot.agent.json and creates a TrueForge session with the agent spec
  * configured with modelName and the forgepilot-editor MCP server connector.
+ * Supports custom instructions, iterationLimit, and verified context-engineering (compaction).
  */
-export async function createAgentSession(modelName: string): Promise<string> {
+export async function createAgentSession(
+  modelName: string,
+  customInstructions?: string,
+  customConfig?: any
+): Promise<string> {
   const config = getForgePilotConfig();
   const sdk = await loadTrueForgeSdk();
 
-  // Find agent/forgepilot.agent.json
+  // Default instructions and config
   let instructions =
-    'You are ForgePilot, a coding agent inside VS Code. Be economical: each model step is expensive. Use one targeted search for a specific symbol name, then read only a small line range around it. Do not read whole files. Stop and answer as soon as you have enough. To modify code you MUST call propose_edit (never claim a file was changed unless the tool result says it was applied); read the relevant lines first with read_file and copy old_text exactly; keep edits small; if the user rejects or a hunk does not match, do not repeat the identical proposal.';
+    'You are ForgePilot, a coding agent inside VS Code. Be economical: each model step is expensive. Use one targeted search for a specific symbol name, then read only a small line range around it. Do not read whole files. Stop and answer as soon as you have enough. To modify code you MUST call propose_edit (never claim a file was changed unless the tool result says it was applied); read the relevant lines first with read_file and copy old_text exactly; keep edits small; if the user rejects or a hunk does not match, do not repeat the identical proposal. To verify changes or run test suites, use run_terminal_command (which requires user approval). ALL file changes (source code, tests, and documentation) MUST go through propose_edit. NEVER use run_terminal_command to write, overwrite, or delete files. Make minimal, surgical additions via propose_edit and NEVER delete existing tests or unrelated code.';
   let iterationLimit = 16;
+  let contextManagement: any = {
+    compaction: {
+      enabled: true,
+    },
+    largeToolResponse: {
+      enabled: true,
+    },
+  };
+
   interface McpServerConfig {
     name: string;
     preloadTools?: string[];
@@ -167,8 +181,8 @@ export async function createAgentSession(modelName: string): Promise<string> {
   let mcpServerConfigs: McpServerConfig[] = [
     {
       name: 'forgepilot-editor',
-      preloadTools: ['read_file', 'search_workspace', 'propose_edit'],
-      requireApprovalForTools: ['propose_edit'],
+      preloadTools: ['read_file', 'search_workspace', 'propose_edit', 'run_terminal_command'],
+      requireApprovalForTools: ['propose_edit', 'run_terminal_command'],
     },
   ];
 
@@ -188,11 +202,22 @@ export async function createAgentSession(modelName: string): Promise<string> {
         if (parsed.config?.iteration_limit) {
           iterationLimit = parsed.config.iteration_limit;
         }
+        const cm = parsed.config?.context_management || parsed.config?.contextManagement;
+        if (cm) {
+          contextManagement = {
+            compaction: {
+              enabled: cm.compaction?.enabled ?? true,
+            },
+            largeToolResponse: {
+              enabled: (cm.large_tool_response?.enabled ?? cm.largeToolResponse?.enabled) ?? true,
+            },
+          };
+        }
         if (Array.isArray(parsed.mcp_servers)) {
           mcpServerConfigs = parsed.mcp_servers.map((s: any) => ({
             name: s.name,
-            preloadTools: s.preload_tools,
-            requireApprovalForTools: s.require_approval_for_tools,
+            preloadTools: s.preload_tools || s.preloadTools,
+            requireApprovalForTools: s.require_approval_for_tools || s.requireApprovalForTools,
           }));
         }
         break;
@@ -200,6 +225,10 @@ export async function createAgentSession(modelName: string): Promise<string> {
     } catch {
       // Continue to next candidate or fallback
     }
+  }
+
+  if (customInstructions && customInstructions.trim()) {
+    instructions = customInstructions;
   }
 
   const client = new sdk.TrueForge({
@@ -219,6 +248,8 @@ export async function createAgentSession(modelName: string): Promise<string> {
           mcpServers: mcpServerConfigs,
           config: {
             iterationLimit,
+            contextManagement,
+            ...(customConfig || {}),
           },
         },
       },
