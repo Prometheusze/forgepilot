@@ -4,6 +4,8 @@ import {
   parseProposeEditArgs,
   canonicalKey,
   buildProposal,
+  computeContentHash,
+  applyProposalSafely,
   ProposeEditArgs,
 } from './proposal.js';
 import { applySelectedHunks } from '../diff/patch.js';
@@ -260,6 +262,69 @@ runTest('buildProposal: two distant edits produce 2 hunks; applying only second 
     // Second region must have "Line 22: second change"
     assert.strictEqual(partialApplied.includes('Line 22: second change'), true);
     assert.strictEqual(partialApplied.includes('Line 22: initial content'), false);
+  }
+});
+
+// Stale Buffer & Concurrent Edit Protection checks
+runTest('computeContentHash: CRLF and LF generate identical content hashes', () => {
+  const lf = 'function test() {\n  return 42;\n}\n';
+  const crlf = 'function test() {\r\n  return 42;\r\n}\r\n';
+  assert.strictEqual(computeContentHash(lf), computeContentHash(crlf));
+});
+
+runTest('applyProposalSafely: applies selected hunks when base hash and version match', () => {
+  const currentText = 'alpha\nbeta\ngamma\n';
+  const args: ProposeEditArgs = {
+    path: 'test.txt',
+    edits: [{ old_text: 'beta', new_text: 'BETA' }],
+  };
+  const proposal = buildProposal(currentText, args, 1);
+  assert.strictEqual(proposal.ok, true);
+  if (proposal.ok) {
+    const result = applyProposalSafely(currentText, proposal, [proposal.hunks[0].id], 1);
+    assert.strictEqual(result.ok, true);
+    if (result.ok) {
+      assert.strictEqual(result.newText, 'alpha\nBETA\ngamma\n');
+    }
+  }
+});
+
+runTest('applyProposalSafely: rejects and returns conflict when content hash mismatches', () => {
+  const initialText = 'alpha\nbeta\ngamma\n';
+  const args: ProposeEditArgs = {
+    path: 'test.txt',
+    edits: [{ old_text: 'beta', new_text: 'BETA' }],
+  };
+  const proposal = buildProposal(initialText, args, 1);
+  assert.strictEqual(proposal.ok, true);
+  if (proposal.ok) {
+    // Concurrent user edit modified the file before agent applied
+    const modifiedText = 'alpha\nbeta_user_edited\ngamma\n';
+    const result = applyProposalSafely(modifiedText, proposal, [proposal.hunks[0].id], 1);
+    assert.strictEqual(result.ok, false);
+    if (!result.ok) {
+      assert.strictEqual(result.conflict, true);
+      assert.match(result.reason, /Content hash mismatch/i);
+    }
+  }
+});
+
+runTest('applyProposalSafely: rejects and returns conflict when document version mismatches', () => {
+  const currentText = 'alpha\nbeta\ngamma\n';
+  const args: ProposeEditArgs = {
+    path: 'test.txt',
+    edits: [{ old_text: 'beta', new_text: 'BETA' }],
+  };
+  const proposal = buildProposal(currentText, args, 1);
+  assert.strictEqual(proposal.ok, true);
+  if (proposal.ok) {
+    // Expected version 1, but editor version is now 2
+    const result = applyProposalSafely(currentText, proposal, [proposal.hunks[0].id], 2);
+    assert.strictEqual(result.ok, false);
+    if (!result.ok) {
+      assert.strictEqual(result.conflict, true);
+      assert.match(result.reason, /Version mismatch/i);
+    }
   }
 });
 

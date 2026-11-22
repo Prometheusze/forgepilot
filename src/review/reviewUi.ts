@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import * as path from 'node:path';
 import { validateWorkspacePath } from '../mcp/workspaceGuard.js';
 import { applySelectedHunks, hunkSummary } from '../diff/patch.js';
-import { buildProposal, ProposeEditArgs } from './proposal.js';
+import { buildProposal, computeContentHash, ProposeEditArgs } from './proposal.js';
 import { pushUndoRecord } from './undo.js';
 
 export type ReviewOutcome =
@@ -96,15 +96,16 @@ export async function reviewProposal(
     return { kind: 'invalid', reason: `Failed to open document: ${msg}` };
   }
 
+  const initialVersion = doc.version;
   const baseRaw = doc.getText();
   const wasDirty = doc.isDirty;
 
   // 3. Build proposal (pure diff/patch computation)
-  const proposal = buildProposal(baseRaw, args);
+  const proposal = buildProposal(baseRaw, args, initialVersion);
   if (!proposal.ok) {
     return { kind: 'invalid', reason: proposal.error };
   }
-  const { baseText, hunks } = proposal;
+  const { baseText, baseHash, hunks } = proposal;
 
   const reviewId = `rev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const registeredUris: vscode.Uri[] = [];
@@ -242,12 +243,19 @@ export async function reviewProposal(
       return { kind: 'rejected', reason: 'User discarded changes' };
     }
 
-    // 6. Apply ATOMICALLY
+    // 6. Apply ATOMICALLY with stale buffer and concurrent edit protection
     const latestDoc = await vscode.workspace.openTextDocument(fullPath);
     const latestRaw = latestDoc.getText();
     const latestNorm = latestRaw.replace(/\r\n/g, '\n');
 
-    if (latestNorm !== baseText) {
+    if (
+      (typeof initialVersion === 'number' && typeof latestDoc.version === 'number' && latestDoc.version !== initialVersion) ||
+      computeContentHash(latestRaw) !== baseHash ||
+      latestNorm !== baseText
+    ) {
+      vscode.window.showWarningMessage(
+        'ForgePilot: file changed since proposal was generated — skipped to protect your edits.'
+      );
       return { kind: 'stale', reason: 'File changed during review' };
     }
 

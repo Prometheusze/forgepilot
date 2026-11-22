@@ -1,11 +1,19 @@
 // src/review/proposal.ts
 import * as crypto from 'node:crypto';
-import { applyEdits, computeHunks, Hunk, TextEdit } from '../diff/patch.js';
+import { applyEdits, computeHunks, applySelectedHunks, Hunk, TextEdit } from '../diff/patch.js';
 
 export interface ProposeEditArgs {
   path: string;
   edits: { old_text: string; new_text: string }[];
   explanation?: string;
+}
+
+export interface Proposal {
+  baseText: string;
+  baseHash: string;
+  proposedText: string;
+  hunks: Hunk[];
+  expectedVersion?: number;
 }
 
 const MAX_EDITS = 20;
@@ -119,6 +127,14 @@ function canonicalize(val: unknown): unknown {
 }
 
 /**
+ * Computes SHA-256 hash over normalized (\r\n -> \n) content.
+ */
+export function computeContentHash(text: string): string {
+  const norm = text.replace(/\r\n/g, '\n');
+  return crypto.createHash('sha256').update(norm, 'utf8').digest('hex');
+}
+
+/**
  * Computes a stable SHA-256 hash over canonical JSON with sorted keys.
  * Identical proposals always produce the exact same key.
  */
@@ -134,9 +150,11 @@ export function canonicalKey(args: ProposeEditArgs): string {
  */
 export function buildProposal(
   currentText: string,
-  args: ProposeEditArgs
-): { ok: true; baseText: string; proposedText: string; hunks: Hunk[] } | { ok: false; error: string } {
+  args: ProposeEditArgs,
+  expectedVersion?: number
+): { ok: true; baseText: string; baseHash: string; proposedText: string; hunks: Hunk[]; expectedVersion?: number } | { ok: false; error: string } {
   const baseText = currentText.replace(/\r\n/g, '\n');
+  const baseHash = computeContentHash(baseText);
   const edits: TextEdit[] = args.edits.map((e) => ({
     oldText: e.old_text,
     newText: e.new_text,
@@ -155,7 +173,47 @@ export function buildProposal(
   return {
     ok: true,
     baseText,
+    baseHash,
     proposedText: res.text,
     hunks,
+    expectedVersion,
+  };
+}
+
+/**
+ * Safely applies selected hunks from a proposal against the current file text,
+ * guaranteeing zero writes if a concurrent edit or version mismatch occurred.
+ */
+export function applyProposalSafely(
+  currentText: string,
+  proposal: Proposal,
+  selectedHunkIds: number[],
+  currentVersion?: number
+): { ok: true; newText: string } | { ok: false; conflict: true; reason: string } {
+  if (
+    proposal.expectedVersion !== undefined &&
+    currentVersion !== undefined &&
+    currentVersion !== proposal.expectedVersion
+  ) {
+    return {
+      ok: false,
+      conflict: true,
+      reason: `Version mismatch: document modified (expected version ${proposal.expectedVersion}, got ${currentVersion})`,
+    };
+  }
+
+  const currentHash = computeContentHash(currentText);
+  if (currentHash !== proposal.baseHash) {
+    return {
+      ok: false,
+      conflict: true,
+      reason: 'Content hash mismatch: file was modified concurrently since proposal was generated',
+    };
+  }
+
+  const newText = applySelectedHunks(proposal.baseText, proposal.hunks, selectedHunkIds);
+  return {
+    ok: true,
+    newText,
   };
 }
