@@ -7,3 +7,4 @@ out
 !.env.example
 *.local.yaml
 *.local.json
+scripts/*.js
