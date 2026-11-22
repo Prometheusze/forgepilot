@@ -24,26 +24,6 @@
         "category": "ForgePilot"
       },
       {
-        "command": "forgepilot.acceptHunk",
-        "title": "Accept Hunk",
-        "category": "ForgePilot"
-      },
-      {
-        "command": "forgepilot.rejectHunk",
-        "title": "Reject Hunk",
-        "category": "ForgePilot"
-      },
-      {
-        "command": "forgepilot.acceptAllInFile",
-        "title": "Accept All Hunks in File",
-        "category": "ForgePilot"
-      },
-      {
-        "command": "forgepilot.rejectAllInFile",
-        "title": "Reject All Hunks in File",
-        "category": "ForgePilot"
-      },
-      {
         "command": "forgepilot.undoLastEdit",
         "title": "Undo Last Edit",
         "category": "ForgePilot"
@@ -56,6 +36,11 @@
       {
         "command": "forgepilot.askAgent",
         "title": "Ask Agent",
+        "category": "ForgePilot"
+      },
+      {
+        "command": "forgepilot.devReviewSample",
+        "title": "ForgePilot (dev): Review Sample Edit",
         "category": "ForgePilot"
       }
     ],
@@ -104,7 +89,9 @@
     "watch": "tsc -watch -p ./",
     "typecheck": "tsc -p ./ --noEmit",
     "check:mcp": "node out/mcp/checks.js",
-    "check:diff": "node out/diff/checks.js"
+    "check:diff": "node out/diff/checks.js",
+    "check:review": "node out/review/checks.js",
+    "check:decisions": "node out/review/decisionChecks.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

@@ -21,6 +21,8 @@ import {
   isIgnoredDirectory,
   isIgnoredSearchFile,
 } from './limits.js';
+import { take as takeDecision } from '../review/decisions.js';
+import { parseProposeEditArgs, canonicalKey } from '../review/proposal.js';
 
 export interface ToolTextContent {
   type: 'text';
@@ -199,6 +201,7 @@ export async function handleReadFile(
 
     let outputLines: string[] = [];
     let totalLinesHeader = 0;
+    let totalLinesKnown = true;
     let actualEnd = reqStart;
     let isCapped = false;
 
@@ -255,13 +258,17 @@ export async function handleReadFile(
       const streamed = await streamFileLines(guard.fullPath, reqStart, linesToRead);
       outputLines = streamed.lines;
       actualEnd = reqStart + outputLines.length - 1;
-      totalLinesHeader = streamed.reachedEnd ? streamed.totalScannedLines : Math.max(actualEnd, streamed.totalScannedLines);
+      totalLinesKnown = streamed.reachedEnd;
+      totalLinesHeader = streamed.reachedEnd ? streamed.totalScannedLines : 0;
       if (!streamed.reachedEnd || (args.endLine !== undefined && args.endLine > actualEnd)) {
         isCapped = true;
       }
     }
 
-    const header = `path=${guard.relativePath} version=${version} lines=${reqStart}-${actualEnd} of ${totalLinesHeader}`;
+    const linesHeader = totalLinesKnown
+      ? `lines=${reqStart}-${actualEnd} of ${totalLinesHeader}`
+      : `lines=${reqStart}-${actualEnd} (file continues)`;
+    const header = `path=${guard.relativePath} version=${version} ${linesHeader}`;
     let resultText = header + '\n' + outputLines.join('\n');
 
     if (isCapped) {
@@ -460,7 +467,72 @@ export async function handleSearchWorkspace(
 }
 
 /**
- * Registers both read-only tools onto an McpServer instance.
+ * Tool: propose_edit
+ * Handler retrieves approved decision from the single-use decisions store.
+ * NEVER writes any file directly.
+ */
+export async function handleProposeEdit(
+  args: any,
+  workspaceRoot?: string
+): Promise<ToolResult> {
+  if (!workspaceRoot || !workspaceRoot.trim()) {
+    return {
+      isError: true,
+      content: [{ type: 'text', text: 'Error: No workspace folder is open.' }],
+    };
+  }
+
+  const parseResult = parseProposeEditArgs(args);
+  if (!parseResult.ok) {
+    return {
+      isError: true,
+      content: [{ type: 'text', text: `Error: ${parseResult.error}` }],
+    };
+  }
+
+  const guard = validateWorkspacePath(parseResult.args.path, workspaceRoot);
+  if (!guard.ok) {
+    return {
+      isError: true,
+      content: [{ type: 'text', text: `Error: ${guard.error}` }],
+    };
+  }
+
+  const key = canonicalKey(parseResult.args);
+  const outcome = takeDecision(key);
+  if (!outcome) {
+    return {
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: 'No approved review found for this edit; nothing was written.',
+        },
+      ],
+    };
+  }
+
+  const acceptedStr =
+    outcome.acceptedHunkIds.length > 0
+      ? outcome.acceptedHunkIds.map((id) => id + 1).join(', ')
+      : 'none';
+  const rejectedStr =
+    outcome.rejectedHunkIds.length > 0
+      ? outcome.rejectedHunkIds.map((id) => id + 1).join(', ')
+      : 'none';
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: `Applied ${outcome.acceptedHunkIds.length} of ${outcome.totalHunks} hunks to ${guard.relativePath}; accepted hunks: ${acceptedStr}; rejected hunks: ${rejectedStr}; saved: ${outcome.saved ? 'yes' : 'no'}`,
+      },
+    ],
+  };
+}
+
+/**
+ * Registers editor tools onto an McpServer instance.
  * Accepts a workspaceRootProvider callback to obtain the active workspace root.
  */
 export function registerEditorTools(
@@ -487,5 +559,23 @@ export function registerEditorTools(
       maxResults: z.number().int().min(1).max(MAX_SEARCH_RESULTS).optional().describe('Maximum number of matching lines to return (default 20, max 30).'),
     },
     async (args) => await handleSearchWorkspace(args, getWorkspaceRoot())
+  );
+
+  server.tool(
+    'propose_edit',
+    'propose changes to ONE file; old_text must match EXACTLY ONCE, copied verbatim from read_file output WITHOUT the line-number prefixes and including enough surrounding lines to be unique; several edits for one file can go in one call; the user reviews every hunk and may reject some; the result says what was applied; there is no other way to modify files.',
+    {
+      path: z.string().describe('Relative path from workspace root, or absolute path inside the workspace.'),
+      edits: z
+        .array(
+          z.object({
+            old_text: z.string().describe('Exact text to replace (must match exactly once in original).'),
+            new_text: z.string().describe('New replacement text.'),
+          })
+        )
+        .describe('List of edits to apply to this file.'),
+      explanation: z.string().optional().describe('Optional explanation of why these edits are being made.'),
+    },
+    async (args) => await handleProposeEdit(args, getWorkspaceRoot())
   );
 }

@@ -157,9 +157,20 @@ export async function createAgentSession(modelName: string): Promise<string> {
 
   // Find agent/forgepilot.agent.json
   let instructions =
-    'You are ForgePilot, a coding agent inside VS Code. You must discover files yourself using the available search_workspace and read_file tools. You must read relevant files before drawing conclusions or answering. You have NO ability to modify or edit files in this version.';
-  let iterationLimit = 25;
-  let mcpServerNames = ['forgepilot-editor'];
+    'You are ForgePilot, a coding agent inside VS Code. Be economical: each model step is expensive. Use one targeted search for a specific symbol name, then read only a small line range around it. Do not read whole files. Stop and answer as soon as you have enough. To modify code you MUST call propose_edit (never claim a file was changed unless the tool result says it was applied); read the relevant lines first with read_file and copy old_text exactly; keep edits small; if the user rejects or a hunk does not match, do not repeat the identical proposal.';
+  let iterationLimit = 16;
+  interface McpServerConfig {
+    name: string;
+    preloadTools?: string[];
+    requireApprovalForTools?: string[];
+  }
+  let mcpServerConfigs: McpServerConfig[] = [
+    {
+      name: 'forgepilot-editor',
+      preloadTools: ['read_file', 'search_workspace', 'propose_edit'],
+      requireApprovalForTools: ['propose_edit'],
+    },
+  ];
 
   const candidatePaths = [
     path.resolve(process.cwd(), 'agent', 'forgepilot.agent.json'),
@@ -178,7 +189,11 @@ export async function createAgentSession(modelName: string): Promise<string> {
           iterationLimit = parsed.config.iteration_limit;
         }
         if (Array.isArray(parsed.mcp_servers)) {
-          mcpServerNames = parsed.mcp_servers.map((s: { name: string }) => s.name);
+          mcpServerConfigs = parsed.mcp_servers.map((s: any) => ({
+            name: s.name,
+            preloadTools: s.preload_tools,
+            requireApprovalForTools: s.require_approval_for_tools,
+          }));
         }
         break;
       }
@@ -201,7 +216,7 @@ export async function createAgentSession(modelName: string): Promise<string> {
             name: modelName,
           },
           instructions,
-          mcpServers: mcpServerNames.map((name) => ({ name })),
+          mcpServers: mcpServerConfigs,
           config: {
             iterationLimit,
           },
@@ -210,6 +225,116 @@ export async function createAgentSession(modelName: string): Promise<string> {
     });
 
     return response.data.id;
+  } catch (err: unknown) {
+    throw normalizeTrueForgeError(err, config.baseUrl);
+  }
+}
+
+/**
+ * Creates a turn stream for a session.
+ */
+export async function createTurnStream(
+  sessionId: string,
+  prompt: string,
+  signal?: AbortSignal
+): Promise<any> {
+  const config = getForgePilotConfig();
+  const sdk = await loadTrueForgeSdk();
+
+  const client = new sdk.TrueForge({
+    baseUrl: config.baseUrl,
+    timeoutInSeconds: 120,
+    maxRetries: 1,
+  });
+
+  try {
+    return await client.sessions.createTurnStream(
+      sessionId,
+      {
+        input: [
+          {
+            type: 'user.message',
+            content: prompt,
+          },
+        ],
+      },
+      signal ? { abortSignal: signal } : undefined
+    );
+  } catch (err: unknown) {
+    throw normalizeTrueForgeError(err, config.baseUrl);
+  }
+}
+
+/**
+ * Posts approval/denial events to a paused turn.
+ */
+export async function postTurnApprovalEvents(
+  sessionId: string,
+  turnId: string,
+  events: any[]
+): Promise<any> {
+  const config = getForgePilotConfig();
+  const sdk = await loadTrueForgeSdk();
+
+  const client = new sdk.TrueForge({
+    baseUrl: config.baseUrl,
+    timeoutInSeconds: 30,
+    maxRetries: 1,
+  });
+
+  try {
+    return await client.sessions.createTurnEvents(sessionId, turnId, { events });
+  } catch (err: unknown) {
+    throw normalizeTrueForgeError(err, config.baseUrl);
+  }
+}
+
+/**
+ * Resumes listening to an existing turn SSE stream from afterEventId.
+ */
+export async function subscribeTurnStream(
+  sessionId: string,
+  turnId: string,
+  afterEventId?: string,
+  signal?: AbortSignal
+): Promise<any> {
+  const config = getForgePilotConfig();
+  const sdk = await loadTrueForgeSdk();
+
+  const client = new sdk.TrueForge({
+    baseUrl: config.baseUrl,
+    timeoutInSeconds: 120,
+    maxRetries: 0,
+  });
+
+  try {
+    return await client.sessions.subscribeToTurn(
+      sessionId,
+      turnId,
+      afterEventId ? { afterEventId } : undefined,
+      signal ? { abortSignal: signal } : undefined
+    );
+  } catch (err: unknown) {
+    throw normalizeTrueForgeError(err, config.baseUrl);
+  }
+}
+
+/**
+ * Fetches the current state of a turn.
+ */
+export async function getTurn(sessionId: string, turnId: string): Promise<any> {
+  const config = getForgePilotConfig();
+  const sdk = await loadTrueForgeSdk();
+
+  const client = new sdk.TrueForge({
+    baseUrl: config.baseUrl,
+    timeoutInSeconds: 30,
+    maxRetries: 1,
+  });
+
+  try {
+    const res = await client.sessions.getTurn(sessionId, turnId);
+    return res.data;
   } catch (err: unknown) {
     throw normalizeTrueForgeError(err, config.baseUrl);
   }
