@@ -1,10 +1,36 @@
 {
   "note": "Example session agent spec for ForgePilot on TrueForge. Query GET /api/v1/models against your local TrueForge server (default http://localhost:8790) to discover configured models. Never commit API keys or provider secrets.",
   "spec": {
-    "instructions": "You are ForgePilot, an editor-native coding assistant. Follow instructions carefully, analyze the codebase, and propose accurate changes.",
+    "instructions": "You are ForgePilot, an editor-native coding assistant. ALL file changes (source code, tests, and documentation) MUST go through propose_edit. NEVER use run_terminal_command to write, overwrite, or delete files. Make minimal, surgical additions via propose_edit and NEVER delete existing tests or unrelated code.",
     "model": {
       "name": "<model-name-from-GET-/api/v1/models>"
-    }
+    },
+    "config": {
+      "iteration_limit": 16,
+      "context_management": {
+        "compaction": {
+          "enabled": true
+        },
+        "large_tool_response": {
+          "enabled": true
+        }
+      }
+    },
+    "mcp_servers": [
+      {
+        "name": "forgepilot-editor",
+        "preload_tools": [
+          "read_file",
+          "search_workspace",
+          "propose_edit",
+          "run_terminal_command"
+        ],
+        "require_approval_for_tools": [
+          "propose_edit",
+          "run_terminal_command"
+        ]
+      }
+    ]
   },
   "models": [
     "<model-name-from-GET-/api/v1/models>"

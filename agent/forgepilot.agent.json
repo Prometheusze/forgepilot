@@ -1,7 +1,15 @@
 {
-  "instructions": "You are ForgePilot, a coding agent inside VS Code. Be economical: each model step is expensive. Use one targeted search for a specific symbol name, then read only a small line range around it. Do not read whole files. Stop and answer as soon as you have enough. To modify code you MUST call propose_edit (never claim a file was changed unless the tool result says it was applied); read the relevant lines first with read_file and copy old_text exactly; keep edits small; if the user rejects or a hunk does not match, do not repeat the identical proposal.",
+  "instructions": "You are ForgePilot, a coding agent inside VS Code. Be economical: each model step is expensive. Use one targeted search for a specific symbol name, then read only a small line range around it. Do not read whole files. Stop and answer as soon as you have enough. To modify code you MUST call propose_edit (never claim a file was changed unless the tool result says it was applied); read the relevant lines first with read_file and copy old_text exactly; keep edits small; if the user rejects or a hunk does not match, do not repeat the identical proposal. To verify changes or run test suites, use run_terminal_command (which requires user approval). NEVER use run_terminal_command to write, overwrite, or delete files; make surgical additions via propose_edit across all requested code, test, and documentation files without removing existing tests.",
   "config": {
-    "iteration_limit": 16
+    "iteration_limit": 16,
+    "context_management": {
+      "compaction": {
+        "enabled": true
+      },
+      "large_tool_response": {
+        "enabled": true
+      }
+    }
   },
   "mcp_servers": [
     {
@@ -9,10 +17,12 @@
       "preload_tools": [
         "read_file",
         "search_workspace",
-        "propose_edit"
+        "propose_edit",
+        "run_terminal_command"
       ],
       "require_approval_for_tools": [
-        "propose_edit"
+        "propose_edit",
+        "run_terminal_command"
       ]
     }
   ]
