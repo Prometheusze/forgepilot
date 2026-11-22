@@ -91,7 +91,8 @@
     "check:mcp": "node out/mcp/checks.js",
     "check:diff": "node out/diff/checks.js",
     "check:review": "node out/review/checks.js",
-    "check:decisions": "node out/review/decisionChecks.js"
+    "check:decisions": "node out/review/decisionChecks.js",
+    "check:toolresolve": "node out/agent/toolResolveChecks.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

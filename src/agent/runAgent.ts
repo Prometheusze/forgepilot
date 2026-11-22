@@ -10,11 +10,13 @@ import {
   postTurnApprovalEvents,
   subscribeTurnStream,
   getTurn,
+  createTurnEventsLister,
   cancelSession,
 } from '../trueforge/session.js';
 import { parseProposeEditArgs, canonicalKey } from '../review/proposal.js';
 import { reviewProposal, cancelActiveReview } from '../review/reviewUi.js';
 import { put as putDecision } from '../review/decisions.js';
+import { resolveToolCall } from './toolResolve.js';
 
 let activeCancelCallback: (() => void) | null = null;
 
@@ -155,6 +157,7 @@ export async function runAgent(
   let lastSeenEventId: string | undefined = undefined;
   let rawApprovalPrinted = false;
   let rawProposeEditPrinted = false;
+  let rawResolvedEventPrinted = false;
 
   interface ToolCallRecord {
     id: string;
@@ -319,6 +322,7 @@ export async function runAgent(
       }
 
       // Process approval decisions for all pending calls
+      const listEvents = await createTurnEventsLister(sessionId, currentTurnId);
       const approvalEvents: any[] = [];
 
       for (const pending of pendingApprovals) {
@@ -326,13 +330,54 @@ export async function runAgent(
           break;
         }
 
-        const callInfo = knownToolCalls.get(pending.id);
-        const toolName = callInfo ? callInfo.name : 'unknown';
+        // Call resolveToolCall FIRST
+        let resolved = await resolveToolCall(
+          { id: pending.id, sourceEventId: pending.sourceEventId ?? '' },
+          listEvents
+        );
+
+        // Keep existing streamed-tool-call buffer only as secondary fallback
+        if (!resolved) {
+          const fallback = knownToolCalls.get(pending.id);
+          if (fallback && fallback.name) {
+            resolved = {
+              name: fallback.name,
+              argumentsJson: fallback.arguments,
+              rawEventJson: JSON.stringify(fallback),
+            };
+          }
+        }
+
+        if (!resolved) {
+          channel.appendLine(
+            `[approval] could not identify tool call ${pending.id}; denying approval`
+          );
+          approvalEvents.push({
+            type: 'user.tool_approval',
+            threadId: pending.threadId,
+            toolCallId: pending.id,
+            approval: {
+              status: 'deny',
+              reason: 'ForgePilot could not identify this tool call; nothing was applied',
+            },
+          });
+          continue;
+        }
+
+        channel.appendLine(`[approval] resolved ${resolved.name} (call ${pending.id})`);
+        if (!rawResolvedEventPrinted) {
+          channel.appendLine(
+            '\n[resolved event raw] ' + truncate(resolved.rawEventJson, 2000)
+          );
+          rawResolvedEventPrinted = true;
+        }
+
+        const toolName = resolved.name;
 
         if (toolName.endsWith('propose_edit')) {
           let parsedJson: unknown = null;
           try {
-            parsedJson = JSON.parse(callInfo?.arguments ?? '{}');
+            parsedJson = JSON.parse(resolved.argumentsJson || '{}');
           } catch (jsonErr: unknown) {
             parsedJson = null;
           }
@@ -415,7 +460,7 @@ export async function runAgent(
             });
           }
         } else {
-          // Modal prompt for non-propose_edit tools
+          // Identified non-propose_edit tools keep modal Allow/Deny (default deny)
           const modalPick = await vscode.window.showInformationMessage(
             `Agent requests approval for tool "${toolName}". Allow?`,
             { modal: true },

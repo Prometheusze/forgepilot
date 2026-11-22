@@ -340,6 +340,44 @@ export async function getTurn(sessionId: string, turnId: string): Promise<any> {
   }
 }
 
+/**
+ * Creates an event lister for a turn that pages through sessions.listTurnEvents.
+ */
+export async function createTurnEventsLister(
+  sessionId: string,
+  turnId: string
+): Promise<(pageToken?: string) => Promise<{ events: unknown[]; nextAfterEventId?: string | null }>> {
+  const config = getForgePilotConfig();
+  const sdk = await loadTrueForgeSdk();
+
+  const client = new sdk.TrueForge({
+    baseUrl: config.baseUrl,
+    timeoutInSeconds: 30,
+    maxRetries: 1,
+  });
+
+  return async (pageToken?: string) => {
+    try {
+      const page = await client.sessions.listTurnEvents(sessionId, turnId, {
+        pageToken: pageToken || undefined,
+        limit: 100,
+        order: 'asc',
+      });
+      const events = Array.isArray(page.data) ? page.data : [];
+      const nextToken =
+        (page.response as any)?.pagination?.nextPageToken ??
+        (page.response as any)?.pagination?.next_page_token ??
+        null;
+      return {
+        events,
+        nextAfterEventId: nextToken,
+      };
+    } catch (err: unknown) {
+      throw normalizeTrueForgeError(err, config.baseUrl);
+    }
+  };
+}
+
 export interface StreamTurnResult {
   status: string;
   errorMessage?: string;

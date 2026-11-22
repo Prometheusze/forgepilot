@@ -206,8 +206,9 @@ export async function handleReadFile(
     let isCapped = false;
 
     if (fileContent !== null) {
-      // Document is open in editor
-      const rawLines = fileContent.split(/\r?\n/);
+      // Document is open in editor (do not count the empty segment after the final newline as a line)
+      const cleanContent = fileContent.replace(/\r?\n$/, '');
+      const rawLines = cleanContent.length > 0 ? cleanContent.split(/\r?\n/) : [];
       totalLinesHeader = rawLines.length;
 
       if (reqStart > totalLinesHeader) {
